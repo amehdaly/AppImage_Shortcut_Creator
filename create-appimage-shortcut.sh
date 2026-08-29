@@ -106,10 +106,48 @@ def directory_name(filename):
     return None
 
 
+def top_level_application_menus(root):
+    for menu in list(root):
+        if menu.tag != "Menu":
+            continue
+
+        name = (menu.findtext("Name") or "").strip()
+
+        if name != "Applications":
+            continue
+
+        for child in list(menu):
+            if child.tag != "Menu":
+                continue
+
+            label = (child.findtext("Name") or "").strip()
+
+            if not label:
+                continue
+
+            if label in {"More", "Applications"}:
+                continue
+
+            yield label
+
+    if root.tag == "Menu":
+        name = (root.findtext("Name") or "").strip()
+        if name == "Applications":
+            for child in list(root):
+                if child.tag != "Menu":
+                    continue
+
+                label = (child.findtext("Name") or "").strip()
+
+                if not label or label in {"More", "Applications"}:
+                    continue
+
+                yield label
+
+
 categories = {}
 
 for menu_file in menu_files:
-
     if not os.path.isfile(menu_file):
         continue
 
@@ -118,41 +156,26 @@ for menu_file in menu_files:
     except Exception:
         continue
 
-    for menu in root.iter("Menu"):
+    for label in top_level_application_menus(root):
+        display_name = label
 
-        menu_name = menu.findtext("Name")
-        directory = menu.findtext("Directory")
+        # Match the directory label when available, as that is how KDE names
+        # the visible launcher section.
+        for menu in root.iter("Menu"):
+            if (menu.findtext("Name") or "").strip() == label:
+                directory = menu.findtext("Directory")
+                directory_display = directory_name(directory)
+                if directory_display:
+                    display_name = directory_display
+                    break
 
-        include = menu.find("Include")
+        categories.setdefault(label, display_name)
 
-        if include is None:
-            continue
-
-        category_nodes = include.findall(".//Category")
-
-        if not category_nodes:
-            continue
-
-        display_name = directory_name(directory) or menu_name
-
-        if not display_name:
-            continue
-
-        for node in category_nodes:
-
-            category = (node.text or "").strip()
-
-            if not category:
-                continue
-
-            categories.setdefault(category, display_name)
-
-
-for category, display in sorted(
+for label, display in sorted(
     categories.items(),
     key=lambda x: x[1].lower()
 ):
-    print(f"{category}\t{display}")
+    print(f"{label}\t{display}")
 PY
 }
 
