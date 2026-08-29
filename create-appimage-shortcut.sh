@@ -48,6 +48,54 @@ desktop_escape() {
     printf '%s' "$1" | sed 's/\\/\\\\/g'
 }
 
+run_optional_refresh_command() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 15s "$@" >/dev/null 2>&1 || true
+    else
+        "$@" >/dev/null 2>&1 || true
+    fi
+}
+
+refresh_desktop_menus() {
+    local DESKTOP_DATABASE_DIR="$1"
+    local KBUILD_COMMAND=""
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+
+        if [[ "$NEED_SUDO" == true && ! -w "$DESKTOP_DATABASE_DIR" ]]; then
+
+            printf '%s\n' "$SUDO_PASSWORD" \
+                | run_optional_refresh_command \
+                    sudo -S -p '' update-desktop-database \
+                    -q \
+                    "$DESKTOP_DATABASE_DIR"
+
+        else
+
+            run_optional_refresh_command \
+                update-desktop-database \
+                -q \
+                "$DESKTOP_DATABASE_DIR"
+
+        fi
+
+    fi
+
+    if command -v xdg-desktop-menu >/dev/null 2>&1; then
+        run_optional_refresh_command xdg-desktop-menu forceupdate
+    fi
+
+    if command -v kbuildsycoca6 >/dev/null 2>&1; then
+        KBUILD_COMMAND="kbuildsycoca6"
+    elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+        KBUILD_COMMAND="kbuildsycoca5"
+    fi
+
+    if [[ -n "$KBUILD_COMMAND" ]]; then
+        run_optional_refresh_command "$KBUILD_COMMAND" --noincremental
+    fi
+}
+
 # ------------------------------------------------------------
 # Scan KDE menu categories
 # ------------------------------------------------------------
@@ -128,7 +176,7 @@ def top_level_application_menus(root):
             if label in {"More", "Applications"}:
                 continue
 
-            yield label
+            yield child
 
     if root.tag == "Menu":
         name = (root.findtext("Name") or "").strip()
@@ -142,7 +190,22 @@ def top_level_application_menus(root):
                 if not label or label in {"More", "Applications"}:
                     continue
 
-                yield label
+                yield child
+
+
+def menu_include_category(menu):
+    include = menu.find("Include")
+
+    if include is None:
+        return None
+
+    for category in include.iter("Category"):
+        value = (category.text or "").strip()
+
+        if value and value != "X-KDE-More":
+            return value
+
+    return None
 
 
 categories = {}
@@ -156,20 +219,20 @@ for menu_file in menu_files:
     except Exception:
         continue
 
-    for label in top_level_application_menus(root):
+    for menu in top_level_application_menus(root):
+        label = (menu.findtext("Name") or "").strip()
+        category = menu_include_category(menu)
+
+        if not category:
+            continue
+
         display_name = label
+        directory_display = directory_name(menu.findtext("Directory"))
 
-        # Match the directory label when available, as that is how KDE names
-        # the visible launcher section.
-        for menu in root.iter("Menu"):
-            if (menu.findtext("Name") or "").strip() == label:
-                directory = menu.findtext("Directory")
-                directory_display = directory_name(directory)
-                if directory_display:
-                    display_name = directory_display
-                    break
+        if directory_display:
+            display_name = directory_display
 
-        categories.setdefault(label, display_name)
+        categories.setdefault(category, display_name)
 
 for label, display in sorted(
     categories.items(),
@@ -808,38 +871,33 @@ if [[ "$SCOPE" == "system" ]]; then
         | sudo -S -p '' install \
             -m 644 \
             "$TMP_DESKTOP" \
-            "$DESKTOP_FILE"
+            "$DESKTOP_FILE" ||
+                error_exit "Unable to install launcher:
+
+$DESKTOP_FILE"
 
 else
 
     install \
         -m 644 \
         "$TMP_DESKTOP" \
-        "$DESKTOP_FILE"
+        "$DESKTOP_FILE" ||
+            error_exit "Unable to install launcher:
+
+$DESKTOP_FILE"
 
 fi
 
+[[ -f "$DESKTOP_FILE" ]] ||
+    error_exit "Launcher was not created:
+
+$DESKTOP_FILE"
+
 # ------------------------------------------------------------
-# Refresh KDE menu database
+# Refresh desktop menu databases
 # ------------------------------------------------------------
 
-if command -v kbuildsycoca6 >/dev/null 2>&1; then
-
-    if [[ "$CREATED_NEW_CATEGORY" == true ]]; then
-        kbuildsycoca6 --noincremental >/dev/null 2>&1
-    else
-        kbuildsycoca6 >/dev/null 2>&1
-    fi
-
-elif command -v kbuildsycoca5 >/dev/null 2>&1; then
-
-    if [[ "$CREATED_NEW_CATEGORY" == true ]]; then
-        kbuildsycoca5 --noincremental >/dev/null 2>&1
-    else
-        kbuildsycoca5 >/dev/null 2>&1
-    fi
-
-fi
+refresh_desktop_menus "$DESKTOP_DIR"
 
 # ------------------------------------------------------------
 # Finish
