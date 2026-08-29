@@ -547,15 +547,17 @@ DEFAULT_ICON_DIR="$HOME/.local/share/icons/appimages"
 
 mkdir -p "$DEFAULT_ICON_DIR" 2>/dev/null || true
 
-ICON_DIR="$(
+ICON_PARENT_DIR="$(
     kdialog \
         --title "$TITLE - Icon Location" \
         --getexistingdirectory "$DEFAULT_ICON_DIR"
 )"
 
-[[ -n "$ICON_DIR" ]] || exit 0
+[[ -n "$ICON_PARENT_DIR" ]] || exit 0
 
-ICON_DIR="$(readlink -f "$ICON_DIR")"
+ICON_PARENT_DIR="$(readlink -f "$ICON_PARENT_DIR")"
+ICON_SUBDIR_NAME="$(printf '%s' "$APP_NAME" | sed 's#/#-#g')"
+ICON_DIR="$ICON_PARENT_DIR/$ICON_SUBDIR_NAME"
 
 # ------------------------------------------------------------
 # Launcher scope
